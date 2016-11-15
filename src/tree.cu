@@ -19,6 +19,7 @@ __device__ node* tempData[INPUTSIZE];
 __device__ node* tempData1[INPUTSIZE];
 __device__ node* root1;
 __device__ node* globalCurr;
+__device__ node* globalCurrs[ORDER];
 __device__ int globalIdx;
 __device__ int tempKeys[ORDER];
 
@@ -347,6 +348,60 @@ __device__ node* find(int val)
 	return curr;
 }
 
+__device__ node* find(int* values, int len)
+{
+	unsigned inWholeIdx = blockIdx.x*blockDim.x+threadIdx.x;
+	unsigned inNodeIdx = threadIdx.x;
+	unsigned nodeNo = blockIdx.x;
+	int val;
+	if(nodeNo < len)
+		val = values[nodeNo];
+	assert(root1);
+	node* curr = root1;
+	assert(curr);
+	assert(!curr->is_leaf);
+	__syncthreads();
+	while(!curr->is_leaf)
+	{
+		if(inNodeIdx <= curr->num_keys && nodeNo < len)
+		{
+			if(inNodeIdx == 0)
+			{
+				assert(curr->keys[0]);
+				if(val <= curr->keys[0])
+				{
+					assert(curr->pointers[0]);
+					globalCurrs[nodeNo] = curr->pointers[0];
+				}
+			}
+			else if(inNodeIdx < curr->num_keys && inNodeIdx > 0)
+			{
+				assert(curr->keys[inNodeIdx-1]);
+				assert(curr->keys[inNodeIdx]);
+				if(curr->keys[inNodeIdx-1] < val && val <= curr->keys[inNodeIdx])
+				{
+					assert(curr->pointers[inNodeIdx]);
+					globalCurrs[nodeNo] = curr->pointers[inNodeIdx];
+				}
+			}
+			else if(inNodeIdx == curr->num_keys)
+			{
+				assert(curr->keys[curr->num_keys - 1]);
+				if(val > curr->keys[curr->num_keys - 1])
+				{
+					assert(curr->pointers[inNodeIdx]);
+					globalCurrs[nodeNo] = curr->pointers[inNodeIdx];
+				}
+			}
+		}
+		__syncthreads();
+		assert(globalCurrs[nodeNo]);
+		curr = globalCurrs[nodeNo];
+		__syncthreads();
+	}
+	return curr;
+}
+
 __global__ void search(int val, int* result)
 {
 	unsigned inWholeIdx = blockIdx.x*blockDim.x+threadIdx.x;
@@ -356,6 +411,21 @@ __global__ void search(int val, int* result)
 	{
 		if(curr->keys[inWholeIdx] == val)
 			result[0] = 1;
+	}
+}
+
+__global__ void search(int* vals, int* results, int len)
+{
+	unsigned inWholeIdx = blockIdx.x*blockDim.x+threadIdx.x;
+	unsigned inNodeIdx = threadIdx.x;
+	unsigned nodeNo = blockIdx.x;
+	node* curr = find(vals, len);
+	if(nodeNo < len)
+		results[nodeNo] = 0;
+	if(nodeNo < len && inNodeIdx < curr->num_keys)
+	{
+		if(curr->keys[inNodeIdx] == vals[nodeNo])
+			results[nodeNo] = 1;
 	}
 }
 

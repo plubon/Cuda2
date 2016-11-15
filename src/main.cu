@@ -49,7 +49,10 @@ int main(int argc, char **argv)
 	sort(initValues, initValues+INPUTSIZE);
     int* input = NULL;
     int* result = NULL;
-    int host[1];
+    int* results = NULL;
+    int* values = NULL;
+    int myArray[3] = { -1, 898386, 40156 };
+    int host[1], hostResults[3];
     cudaError_t err = cudaMalloc((void **)&input, INPUTSIZE * sizeof(int));
     if (err != cudaSuccess)
     	cout<<"input "<<cudaGetErrorString(err)<<endl;
@@ -59,9 +62,18 @@ int main(int argc, char **argv)
     err = cudaMalloc((void **)&result, 1 * sizeof(int));
     if (err != cudaSuccess)
     	cout<<"result "<<cudaGetErrorString(err)<<endl;
+    err = cudaMalloc((void **)&results, 3 * sizeof(int));
+	if (err != cudaSuccess)
+		cout<<"results "<<cudaGetErrorString(err)<<endl;
+	err = cudaMalloc((void **)&values, 3 * sizeof(int));
+	if (err != cudaSuccess)
+		cout<<"values "<<cudaGetErrorString(err)<<endl;
     err = cudaMemcpy(input, initValues, INPUTSIZE*sizeof(int), cudaMemcpyHostToDevice);
 	if (err != cudaSuccess)
 		cout<<"copy input "<<cudaGetErrorString(err)<<endl;
+	err = cudaMemcpy(values, myArray, 3*sizeof(int), cudaMemcpyHostToDevice);
+	if (err != cudaSuccess)
+			cout<<"copy values "<<cudaGetErrorString(err)<<endl;
 	cudaDeviceSetLimit(cudaLimitMallocHeapSize, 512000000);
     buildLeaves<<<INPUTSIZE/BLOCKSIZE + 1, BLOCKSIZE>>>(root, input, result);
     err = cudaThreadSynchronize();
@@ -114,10 +126,19 @@ int main(int argc, char **argv)
     		f = 1;
     }
     cout<<host[0]<<" "<<f<<endl;
+    search<<<3, BLOCKSIZE>>>(values, results, 3);
+    err = cudaThreadSynchronize();
+    if (err != cudaSuccess)
+    		cout<<"multiple search call "<<cudaGetErrorString(err)<<endl;
+    cudaMemcpy(hostResults, results, 3*sizeof(int), cudaMemcpyDeviceToHost);
+    for(int i=0; i<3; i++)
+    	cout<<hostResults[i]<<endl;
     insertVal<<<1, BLOCKSIZE>>>(v);
+    err = cudaThreadSynchronize();
     if (err != cudaSuccess)
     	cout<<"insert call "<<cudaGetErrorString(err)<<endl;
     search<<<1, BLOCKSIZE>>>(v, result);
+    err = cudaThreadSynchronize();
     if (err != cudaSuccess)
 		cout<<"2nd search call "<<cudaGetErrorString(err)<<endl;
     cudaMemcpy(host, result, 1*sizeof(int), cudaMemcpyDeviceToHost);

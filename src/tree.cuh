@@ -31,6 +31,7 @@ __global__ void fillLevel(node*&, int*, int*, int, int);
 __global__ void fillRoot(node*&, int*, int*, int, int);
 __global__ void buildRoot(node*&, int*, int*);
 __global__ void search(int, int*);
+__global__ void search(int*, int*, int);
 __global__ void insertVal(int);
 __device__ node* find(int);
 __device__ void addKey(node*, int);
