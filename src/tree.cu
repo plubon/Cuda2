@@ -20,8 +20,11 @@ __device__ node* tempData1[INPUTSIZE];
 __device__ node* root1;
 __device__ node* globalCurr;
 __device__ node* globalCurrs[ORDER];
+__device__ node* newNode;
 __device__ int globalIdx;
 __device__ int tempKeys[ORDER];
+__device__ node* tempPointers[ORDER];
+__device__ int globalPointerIdx;
 
 __device__ void make_node(node*& new_node)
 {
@@ -234,6 +237,66 @@ __global__ void bulkLoad(node*& root, int* input, int* result)
 	}
 }
 
+__device__ void addKey(node* curr, node* child)
+{
+	unsigned inWholeIdx = blockIdx.x*blockDim.x+threadIdx.x;
+	int val = child->keys[0];
+	if(contains(curr, val))
+		return;
+	if(inWholeIdx <= curr->num_keys)
+	{
+		if(inWholeIdx < curr->num_keys)
+			tempKeys[inWholeIdx] = curr->keys[inWholeIdx];
+		if(!curr->is_leaf)
+			tempPointers[inWholeIdx] = curr->pointers[inWholeIdx];
+	}
+	if(inWholeIdx <= curr->num_keys)
+	{
+		if(inWholeIdx == 0)
+		{
+			if(val <= curr->keys[0])
+			{
+				globalIdx = 0;
+			}
+		}
+		else if(inWholeIdx < curr->num_keys && inWholeIdx > 0)
+		{
+			if(curr->keys[inWholeIdx-1] < val && val <= curr->keys[inWholeIdx])
+			{
+				globalIdx = inWholeIdx;
+			}
+		}
+		else if(inWholeIdx == curr->num_keys)
+		{
+			if(val > curr->keys[curr->num_keys - 1])
+			{
+				globalIdx = curr->num_keys;
+			}
+		}
+	}
+	__syncthreads();
+	if(inWholeIdx >= globalIdx && inWholeIdx <= curr->num_keys)
+	{
+		if(inWholeIdx < curr->num_keys)
+			curr->keys[inWholeIdx+1] = tempKeys[inWholeIdx];
+		if(!curr->is_leaf)
+			curr->pointers[inWholeIdx+1] = curr->pointers[inWholeIdx];
+	}
+	__syncthreads();
+	if(inWholeIdx == globalIdx)
+	{
+		if(inWholeIdx > 0)
+			curr->keys[globalIdx] = val;
+		else
+			curr->keys[globalIdx] = child->keys[child->num_keys]+1;
+		if(!curr->is_leaf)
+			curr->pointers[globalIdx];
+	}
+	__syncthreads();
+	if(inWholeIdx == 0)
+		curr->num_keys++;
+}
+
 __device__ void addKey(node* curr, int val)
 {
 	unsigned inWholeIdx = blockIdx.x*blockDim.x+threadIdx.x;
@@ -283,11 +346,77 @@ __global__ void insertVal(int val)
 	assert(curr->num_keys < ORDER -1);
 	if(curr->num_keys < ORDER -1)
 		addKey(curr, val);
-	//else
-		//split(curr, val);
+	else
+		split(curr, val);
 }
 
+__device__ void split(node* curr, int val)
+{
+	unsigned inWholeIdx = blockIdx.x*blockDim.x+threadIdx.x;
+	node* newNodeLocal;
+	if(inWholeIdx == 0)
+	{
+		newNode = (node*)malloc(sizeof(node));
+		newNode->keys = (int*)malloc( (ORDER - 1) * sizeof(int) );
+		newNode->pointers = (node**)malloc( ORDER * sizeof(node *) );
+		newNode->is_leaf = curr->is_leaf;
+		newNode->num_keys = ORDER/2;
+		newNode->parent = curr->parent;
+		newNode->next = curr->next;
+		curr->num_keys = ORDER/2;
+		curr->next = newNode;
+		globalPointerIdx = 0;
+	}
+	__syncthreads();
+	newNodeLocal = newNode;
+	__syncthreads();
+	if(inWholeIdx < (ORDER /2))
+	{
+		newNode->keys[inWholeIdx] = curr->keys[ORDER/2 + inWholeIdx];
+	}
+	if(!curr->is_leaf && inWholeIdx <= (ORDER /2))
+	{
+		newNode->leafs[inWholeIdx] = curr->pointers[ORDER/2 + inWholeIdx];
+	}
+	if(curr->parent->num_keys >= ORDER)
+		split(curr, newNode);
+	else
+		addKey(curr->parent, newNodeLocal);
+}
 
+__device__ void split(node* curr, node* child)
+{
+	unsigned inWholeIdx = blockIdx.x*blockDim.x+threadIdx.x;
+	node* newNodeLocal;
+	if(inWholeIdx == 0)
+	{
+		newNode = (node*)malloc(sizeof(node));
+		newNode->keys = (int*)malloc( (ORDER - 1) * sizeof(int) );
+		newNode->pointers = (node**)malloc( ORDER * sizeof(node *) );
+		newNode->is_leaf = curr->is_leaf;
+		newNode->num_keys = ORDER/2;
+		newNode->parent = curr->parent;
+		newNode->next = curr->next;
+		curr->num_keys = ORDER/2;
+		curr->next = newNode;
+		globalPointerIdx = 0;
+	}
+	__syncthreads();
+	newNodeLocal = newNode;
+	__syncthreads();
+	if(inWholeIdx < (ORDER /2))
+	{
+		newNode->keys[inWholeIdx] = curr->keys[ORDER/2 + inWholeIdx];
+	}
+	if(!curr->is_leaf && inWholeIdx <= (ORDER /2))
+	{
+		newNode->leafs[inWholeIdx] = curr->pointers[ORDER/2 + inWholeIdx];
+	}
+	if(curr->parent->num_keys >= ORDER)
+		split(curr, newNode);
+	else
+		addKey(curr->parent, newNodeLocal);
+}
 __device__ int contains(node* curr, int val)
 {
 	unsigned inWholeIdx = blockIdx.x*blockDim.x+threadIdx.x;
